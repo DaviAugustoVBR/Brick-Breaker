@@ -5,6 +5,8 @@ from pygame import Surface, Rect
 from pygame.sprite import Sprite, Group
 from pygame.event import Event
 from pygame.key import ScancodeWrapper
+from pygame.font import Font
+from math import sqrt
 #region          Incializar
 pygame.init()
 #endregion
@@ -57,7 +59,7 @@ class GameMaster:
                  tamanho_tela:tuple[int,int], titulo_tela:str,
                  brickspLine:int, lines:int ,
                  player_hspd:int = int(3)   , player_color:tuple[int, int, int] = default_colors["blue"],
-                 bola_spd:list[int] = [3,-3] , bola_color:tuple[int,int,int] = default_colors["white"],
+                 bola_spd:list[int] = [3,-3], bola_color  :tuple[int, int, int] = default_colors["white"],
                  ) -> None:
 
         self._game_is_end:bool = False
@@ -69,7 +71,37 @@ class GameMaster:
 
         self._element_bricks_list = self.brick_creator(brickspLine, lines)
 
+        self._core_texts: dict[str,Texto] = {
+            "pontuação": self.text_creator(
+                              int(self.tela.largura/20),int(self.tela.altura/20),
+                              f"Pontuação:{self.points}",
+                              Font(None,int(sqrt((self.tela.largura/32)*(self.tela.altura/25))))
+                             ),
+            }
+        
+        self._end_texts: dict[str,Texto] = {
+            "win"  : self.text_creator(
+                                       int(self.tela.largura/4),
+                                       int(self.tela.altura/ 2),
+                                       "Você Ganhou!",
+                                       Font(None,int(sqrt((self.tela.largura/16)*(self.tela.altura/12))))
+                                      ),
+            "loose": self.text_creator(
+                                       int(self.tela.largura/4),
+                                       int(self.tela.altura/2),
+                                       "Você Perdeu!",
+                                       Font(None,int(sqrt((self.tela.largura/16)*(self.tela.altura/12))))
+                                       ),
+            "finalPts": self.text_creator(
+                                        int(self.tela.largura/6),int(self.tela.altura/6),
+                                        f"Pontuação:{self.points}",
+                                        Font(None,int(sqrt((self.tela.largura/40)*(self.tela.altura/30))))
+                                        ),
+            }
+            
+
     #region propertys
+
     @property
     def tela(self) -> Window:
         return self._element_tela
@@ -93,11 +125,19 @@ class GameMaster:
     @property
     def points(self) -> int:
         return self._points
+    
+    @property
+    def core_texts(self)-> dict[str,Texto]:
+        return self._core_texts
+    @property
+    def end_texts(self)-> dict[str,Texto]:
+        return self._end_texts
+
     #endregion 
     
     def verificar_se_perdeu(self)->bool:
         bola = self.ball
-        return bola.y + bola.height + bola.speed[1] >= self.tela.altura
+        return bola.y + bola.height >= self.tela.altura
 
     def verificar_se_ganhou(self)->bool:
         return not self._element_bricks_list
@@ -110,13 +150,31 @@ class GameMaster:
 
     def draw_elements (self):
         self.tela.janela.fill(default_colors["black"])
-        self.player.draw()
 
-        for b in self._element_bricks_list:
-            b.draw()
-        
-        self.ball.draw()
+        if not self.game_is_end:
+            self.player.draw()
 
+            for b in self._element_bricks_list:
+                b.draw()
+            
+            self.ball.draw()
+
+            for t in self.core_texts.values():
+                t.draw()
+
+    def text_creator(
+            self,
+            x: int,
+            y: int,
+            texto: str,
+            fonte: Font,
+            antialias: bool = True,
+            char_color : tuple[int, int, int] = (255, 255, 255),
+            bkg_color  : tuple[int, int, int] | None = None,
+            wrap_length: int = 0
+            )->Texto:
+        return Texto(x, y, texto, fonte, antialias, self.tela, char_color, bkg_color, wrap_length)
+        ...
 
     def player_creator(self,player_hspd:int, player_color:tuple[int, int, int])->Player:
         largura = self.tela.largura
@@ -219,15 +277,27 @@ class GameMaster:
     def check_win_or_lose(self):
         perdeu = self.verificar_se_perdeu()
         if perdeu:    
-            print("You Lose!!!") 
-            print(f"Points:{self.points}")
+            print("You loose!")
             self.end_game()
             
         ganhou = self.verificar_se_ganhou()
         if ganhou:    
-            print("You Win!!!") 
-            print(f"Points:{self.points}")
+            print("You loose!")
             self.end_game()
+
+    def autalizar_pts(self):
+        core_pts = self.core_texts["pontuação"]
+        core_pts.change_text_to(f"pontuação:{self.points}")
+        core_pts.atualizar_surface()
+
+        end_pts = self.end_texts["finalPts"]
+        end_pts.change_text_to(f"pontuação:{self.points}")
+        end_pts.atualizar_surface()
+
+    def check_quit_game(self):
+        for user_event in pygame.event.get():
+                if user_event.type == pygame.QUIT:
+                    self.end_game()
 
     def core_loop(self) -> None:
 
@@ -235,12 +305,11 @@ class GameMaster:
             
             self.execute_elements_movement()
             self.execute_colisions()
+            self.autalizar_pts()
 
             self.check_win_or_lose()
 
-            for user_event in pygame.event.get():
-                if user_event.type == pygame.QUIT:
-                    self.end_game()
+            self.check_quit_game()
             
             self.draw_elements()
             clock = pygame.time.Clock()
@@ -434,6 +503,83 @@ class Bloco(Game_rectangle_element):
 
     def draw(self):
         pygame.draw.rect(self.tela.janela,self._color,self.body)
+
+class Texto:
+    def __init__(self,
+                 x:int,
+                 y:int,
+                 texto:str,
+                 fonte:Font,
+                 antialias:bool,
+                 tela:Window, 
+                 char_color :tuple[int,int,int] = (255,255,255),
+                 bkg_color  :tuple[int,int,int] | None = None,
+                 wrap_length:int = 0
+                 ) -> None:
+        self._x = x
+        self._y = y
+
+        self._texto = texto
+        self._fonte = fonte
+        self._tela  = tela
+        self._color = char_color
+
+        self._antialias   = antialias
+        self._bkg_color   = bkg_color
+        self._wrap_length = wrap_length
+        self._txt_surface = self.fonte.render(self.texto,self.antialias,self.color, self.bkg_color, self.wrap_length)
+
+    @property
+    def x(self) -> int:
+        return self._x
+
+    @property
+    def y(self) -> int:
+        return self._y
+    
+    @property
+    def antialias(self) -> bool:
+        return self._antialias
+
+    @property
+    def color(self) -> tuple[int,int,int]:
+        return self._color
+
+    @property
+    def bkg_color(self) -> tuple[int,int,int]|None:
+        return self._bkg_color
+
+    @property
+    def wrap_length(self) -> int:
+        return self._wrap_length
+    
+    @property
+    def surface(self) -> Surface:
+        return self._txt_surface
+        
+    @property
+    def texto(self) -> str:
+        return self._texto
+    @texto.setter
+    def texto(self, texto:str):
+        self._texto = texto
+    
+    @property
+    def fonte(self) -> Font:
+        return self._fonte
+    
+    @property
+    def tela(self) -> Window:
+        return self._tela
+
+    def change_text_to(self, new_text:str):
+        self.texto = new_text
+    
+    def atualizar_surface(self):
+        self._txt_surface = self.fonte.render(self.texto,self.antialias,self.color, self.bkg_color, self.wrap_length)
+
+    def draw(self):
+        self.tela.janela.blit(self.surface,(self.x,self.y))
 
 #endregion
 
